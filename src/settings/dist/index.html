@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Taskbar Widgets Settings</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar" aria-label="Taskbar Widgets">
+        <div class="sidebar-head">
+          <div class="app-icon">
+            <img src="./assets/logo.png" alt="" />
+          </div>
+          <div>
+            <h1>Taskbar Widgets</h1>
+            <p>Settings</p>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="Settings navigation">
+          <button class="nav-item active" data-page="library">
+            <span class="material-symbols-outlined filled">widgets</span>
+            <span>Installed</span>
+          </button>
+          <button class="nav-item" data-page="explore">
+            <span class="material-symbols-outlined">language</span>
+            <span>Explore</span>
+          </button>
+          <button class="nav-item" data-page="developer">
+            <span class="material-symbols-outlined">extension</span>
+            <span>Developer</span>
+          </button>
+          <button class="nav-item" data-page="rotation">
+            <span class="material-symbols-outlined">rebase_edit</span>
+            <span>Slider Rotation</span>
+          </button>
+          <button class="nav-item" data-page="updates">
+            <span class="material-symbols-outlined">system_update</span>
+            <span>Updates</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-foot">
+          <button class="nav-item" data-page="settings">
+            <span class="material-symbols-outlined">settings</span>
+            <span>Settings</span>
+          </button>
+          <div class="nav-separator" role="separator"></div>
+          <button class="nav-item" data-page="help" type="button">
+            <span class="material-symbols-outlined">help</span>
+            <span>Help</span>
+          </button>
+          <button class="nav-item" data-external-link="feedback" type="button">
+            <span class="material-symbols-outlined">chat_bubble</span>
+            <span>Feedback</span>
+          </button>
+          <div class="service-state" aria-label="System service running">
+            <span class="service-dot"></span>
+            <span>System service</span>
+            <strong>Running</strong>
+          </div>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <div id="page" class="page"></div>
+      </section>
+    </main>
+
+    <script src="./generated/widget-catalog.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,3 +1,20 @@
-*.twidget
-build-out/
+bin/
+obj/
+artifacts/
+.vs/
+.idea/
+.vscode/
 
+**/bin/
+**/obj/
+
+src/loader/Resources/*.dll
+src/loader/Resources/*.exe
+src/settings/src-tauri/target/
+ornek_proje/OpenQuota/
+.reference/
+
+*.user
+*.suo
+*.log
+*.tmp

@@ -1,0 +1,15 @@
+{
+  "$schema": "../widget.schema.json",
+  "schemaVersion": 1,
+  "id": "discord-voice",
+  "displayName": "Discord Voice",
+  "category": "Social",
+  "description": "Discord voice participants and speaking state.",
+  "defaultSize": { "width": 220, "height": 48 },
+  "assets": [],
+  "settings": [
+    { "key": "backgroundEnabled", "type": "boolean", "label": "Show background", "default": true },
+    { "key": "realTimeVoiceEnabled", "type": "boolean", "label": "Instant speaking detection", "default": false },
+    { "key": "displayMode", "type": "select", "label": "Theme", "default": "avatars", "options": ["avatars", "channel"] }
+  ]
+}
