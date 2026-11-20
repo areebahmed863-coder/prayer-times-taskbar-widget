@@ -1,0 +1,122 @@
+{
+  "$schema": "../repo/community-sdk/schemas/widget-v4.schema.json",
+  "schemaVersion": 4,
+  "id": "com.areeb.prayer-times",
+  "version": "1.0.2",
+  "minHostVersion": "0.5.4",
+  "displayName": "Prayer Times",
+  "description": "Next prayer, time left and a progress bar on the taskbar. Hanafi Asr by default. Compact enough for narrow and portrait-monitor taskbars.",
+  "author": {
+    "name": "Areeb"
+  },
+  "category": "Lifestyle",
+  "size": {
+    "width": 124,
+    "height": 40
+  },
+  "renderer": {
+    "type": "native",
+    "entry": "compact.json"
+  },
+  "runtime": {
+    "type": "process",
+    "entry": "provider.ps1",
+    "arguments": [],
+    "protocol": "json-lines-v1",
+    "lifetime": "persistent",
+    "runAs": "user",
+    "workingDirectory": "package"
+  },
+  "permissions": {
+    "required": [
+      {
+        "id": "system.fullAccess",
+        "reason": "Runs the packaged PowerShell provider with your Windows user's rights to fetch prayer times and cache them."
+      },
+      {
+        "id": "network.internet",
+        "scope": "https://api.aladhan.com",
+        "reason": "Downloads daily prayer times for your city from the free Aladhan API."
+      },
+      {
+        "id": "filesystem.write",
+        "scope": "%LOCALAPPDATA%\\TaskbarWidgets\\PrayerTimes",
+        "reason": "Caches the downloaded timings so the widget works offline."
+      },
+      {
+        "id": "system.background",
+        "reason": "Keeps a light provider running to update the countdown every 20 seconds."
+      }
+    ],
+    "optional": []
+  },
+  "supportsMultipleInstances": false,
+  "settings": [
+    {
+      "key": "city",
+      "type": "string",
+      "label": "City",
+      "default": "Calgary"
+    },
+    {
+      "key": "country",
+      "type": "string",
+      "label": "Country",
+      "default": "Canada"
+    },
+    {
+      "key": "method",
+      "type": "select",
+      "label": "Calculation method",
+      "default": "2",
+      "options": [
+        {
+          "value": "2",
+          "label": "ISNA (North America)"
+        },
+        {
+          "value": "3",
+          "label": "Muslim World League"
+        },
+        {
+          "value": "4",
+          "label": "Umm al-Qura (Makkah)"
+        },
+        {
+          "value": "5",
+          "label": "Egyptian General Authority"
+        },
+        {
+          "value": "1",
+          "label": "Univ. of Islamic Sciences, Karachi"
+        },
+        {
+          "value": "15",
+          "label": "Moonsighting Committee"
+        }
+      ]
+    },
+    {
+      "key": "school",
+      "type": "select",
+      "label": "Asr calculation",
+      "default": "1",
+      "options": [
+        {
+          "value": "0",
+          "label": "Standard (Shafi, Maliki, Hanbali)"
+        },
+        {
+          "value": "1",
+          "label": "Hanafi"
+        }
+      ]
+    },
+    {
+      "key": "use24Hour",
+      "type": "boolean",
+      "label": "24-hour clock",
+      "default": false
+    }
+  ]
+}
