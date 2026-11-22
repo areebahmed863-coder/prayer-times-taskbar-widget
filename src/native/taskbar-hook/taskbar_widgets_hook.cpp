@@ -9221,7 +9221,7 @@ double GetOverlayRightReserve(wuxc::Grid const& parent,
     }
 
     double rightReserve = narrowTaskbar
-        ? trayWidth + kTaskbarWidgetsOverlayTrayGap
+        ? trayWidth + 10.0
         : std::max(kTaskbarWidgetsOverlayMinRightReserve,
                    trayWidth + kTaskbarWidgetsOverlayTrayGap);
 
