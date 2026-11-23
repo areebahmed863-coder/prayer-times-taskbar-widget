@@ -1,0 +1,10 @@
+#pragma once
+
+#define IDI_APP_ICON 101
+
+#define IDD_PRAYER_SETTINGS 201
+#define IDC_CITY 1001
+#define IDC_COUNTRY 1002
+#define IDC_METHOD 1003
+#define IDC_SCHOOL 1004
+#define IDC_USE24H 1005

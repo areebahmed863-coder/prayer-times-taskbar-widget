@@ -26,7 +26,7 @@ $InstallerSha = Join-Path $ArtifactDir "TaskbarWidgetsSetup-x64.exe.sha256"
 $PortableOutput = Join-Path $ArtifactDir "TaskbarWidgets-portable-x64.zip"
 $PortableSha = Join-Path $ArtifactDir "TaskbarWidgets-portable-x64.zip.sha256"
 $NsisScript = Join-Path $RepoRoot "installer\nsis\TaskbarWidgets.nsi"
-$IconFile = Join-Path $RepoRoot "src\settings\src-tauri\icons\icon.ico"
+$IconFile = Join-Path $RepoRoot "assets\icon.ico"
 
 function Test-SubPath {
     param(
@@ -93,7 +93,7 @@ if (-not $Makensis) {
     throw "makensis.exe was not found. Install NSIS or run this script with -InstallNsisIfMissing."
 }
 
-foreach ($ProcessName in @("TaskbarWidgets", "TaskbarWidgets.MediaHelper", "TaskbarWidgets.RenderHost", "TaskbarWidgets.Settings")) {
+foreach ($ProcessName in @("TaskbarWidgets", "TaskbarWidgets.MediaHelper")) {
     Get-Process $ProcessName -ErrorAction SilentlyContinue |
         Stop-Process -Force -ErrorAction SilentlyContinue
 }
@@ -104,12 +104,8 @@ if (-not (Test-Path (Join-Path $ProductDir "TaskbarWidgets.exe"))) {
 
 & (Join-Path $PSScriptRoot "sign-artifacts.ps1") -Paths @(
     (Join-Path $ProductDir "TaskbarWidgets.exe"),
-    (Join-Path $ProductDir "TaskbarWidgets.Settings.exe"),
-    (Join-Path $ProductDir "TaskbarWidgets.VoiceCapture.exe"),
-    (Join-Path $ProductDir "TaskbarWidgets.MediaHelper.exe"),
-    (Join-Path $ProductDir "TaskbarWidgets.RenderHost.exe"),
-    (Join-Path $ProductDir "TaskbarWidgets.WidgetHost.exe"),
-    (Join-Path $ProductDir "twdev.exe")
+    (Join-Path $ProductDir "TaskbarWidgets.Hook.dll"),
+    (Join-Path $ProductDir "TaskbarWidgets.MediaHelper.exe")
 )
 
 if (-not (Test-SubPath -BasePath $ArtifactDir -TargetPath $StagingRoot)) {
@@ -121,13 +117,8 @@ New-Item -ItemType Directory -Force $PackageRoot | Out-Null
 
 $RequiredFiles = @(
     "TaskbarWidgets.exe",
-    "TaskbarWidgets.Settings.exe",
-    "TaskbarWidgets.VoiceCapture.exe",
+    "TaskbarWidgets.Hook.dll",
     "TaskbarWidgets.MediaHelper.exe",
-    "TaskbarWidgets.RenderHost.exe",
-    "TaskbarWidgets.WidgetHost.exe",
-    "MicrosoftEdgeWebview2Setup.exe",
-    "twdev.exe",
     "README-PORTABLE.txt"
 )
 
@@ -136,22 +127,16 @@ foreach ($FileName in $RequiredFiles) {
     if (-not (Test-Path $Source)) {
         throw "Required product file is missing: $Source"
     }
-
     Copy-Item -Force $Source (Join-Path $PackageRoot $FileName)
 }
 
-Copy-Item -Path (Join-Path $ProductDir "Assets") -Destination (Join-Path $PackageRoot "Assets") -Recurse -Force
-Copy-Item -Path (Join-Path $ProductDir "Widgets") -Destination (Join-Path $PackageRoot "Widgets") -Recurse -Force
-Copy-Item -Path (Join-Path $ProductDir "CommunitySDK") -Destination (Join-Path $PackageRoot "CommunitySDK") -Recurse -Force
-if (Test-Path (Join-Path $ProductDir "Bundled")) {
-    Copy-Item -Path (Join-Path $ProductDir "Bundled") -Destination (Join-Path $PackageRoot "Bundled") -Recurse -Force
+if (Test-Path (Join-Path $ProductDir "Assets")) {
+    Copy-Item -Path (Join-Path $ProductDir "Assets") -Destination (Join-Path $PackageRoot "Assets") -Recurse -Force
 }
 
 $CleanupPaths = @(
     $InstallerOutput,
     $InstallerSha,
-    (Join-Path $ArtifactDir "TaskbarStatsSetup.exe"),
-    (Join-Path $ArtifactDir "TaskbarStatsSetup.exe.sha256"),
     $PortableOutput,
     $PortableSha
 )

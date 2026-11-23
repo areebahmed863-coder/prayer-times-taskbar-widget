@@ -5,7 +5,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$WebView2SdkRoot = (& (Join-Path $PSScriptRoot "restore-webview2.ps1") -PrintPath | Select-Object -Last 1).Trim()
 
 function Find-CMake {
     $command = Get-Command cmake -ErrorAction SilentlyContinue
@@ -24,42 +23,59 @@ function Find-CMake {
     throw "CMake/MSVC is required for native verification."
 }
 
+function Import-VsDevEnv {
+    $vcvars = @(
+        "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+        "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+        "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
+        "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $vcvars) { return $false }
+    $lines = cmd /c "`"$vcvars`" >nul && set"
+    if ($LASTEXITCODE -ne 0) { return $false }
+    foreach ($line in $lines) {
+        if ($line -match '^([^=]+)=(.*)$') {
+            [Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process")
+        }
+    }
+    return $true
+}
+
 & (Join-Path $PSScriptRoot "sync-version.ps1") -Check
 & (Join-Path $PSScriptRoot "generate-widget-catalog.ps1") -Check
 
-dotnet build (Join-Path $RepoRoot "src\loader\TaskbarWidgets.csproj") -c $Configuration
-if ($LASTEXITCODE -ne 0) { throw "Loader build failed." }
-dotnet build (Join-Path $RepoRoot "src\voice-capture\TaskbarWidgets.VoiceCapture.csproj") -c $Configuration
-if ($LASTEXITCODE -ne 0) { throw "Voice capture helper build failed." }
-dotnet build (Join-Path $RepoRoot "src\widget-host\TaskbarWidgets.WidgetHost.csproj") -c $Configuration
-if ($LASTEXITCODE -ne 0) { throw "WidgetHost build failed." }
-dotnet build (Join-Path $RepoRoot "src\twdev\twdev.csproj") -c $Configuration
-if ($LASTEXITCODE -ne 0) { throw "twdev build failed." }
-dotnet run --project (Join-Path $RepoRoot "tests\TaskbarWidgets.Tests\TaskbarWidgets.Tests.csproj") -c $Configuration
-if ($LASTEXITCODE -ne 0) { throw "Contract tests failed." }
-
 $cmake = Find-CMake
+$ctest = Join-Path (Split-Path $cmake -Parent) "ctest.exe"
 $nativeBuild = Join-Path $RepoRoot "artifacts\native-verify"
-& $cmake -S (Join-Path $RepoRoot "src\native") -B $nativeBuild -A x64 -DBUILD_TESTING=ON "-DWEBVIEW2_SDK_ROOT=$WebView2SdkRoot"
+
+$useNinja = $false
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vsFound = $false
+if (Test-Path $vswhere) {
+    $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if (-not [string]::IsNullOrWhiteSpace($vsPath)) { $vsFound = $true }
+}
+
+if (-not $vsFound -and (Import-VsDevEnv)) {
+    $ninja = Get-Command ninja -ErrorAction SilentlyContinue
+    if (-not $ninja) {
+        $ninjaCandidate = Get-ChildItem "C:\Program Files (x86)\Microsoft Visual Studio\2022" -Filter ninja.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+        if ($ninjaCandidate) { $env:PATH = "$(Split-Path $ninjaCandidate -Parent);$env:PATH"; $ninja = $ninjaCandidate }
+    }
+    if ($ninja) { $useNinja = $true }
+}
+
+if ($useNinja) {
+    & $cmake -S (Join-Path $RepoRoot "src\native") -B $nativeBuild -G "Ninja Multi-Config" -DBUILD_TESTING=ON
+} else {
+    & $cmake -S (Join-Path $RepoRoot "src\native") -B $nativeBuild -A x64 -DBUILD_TESTING=ON
+}
 if ($LASTEXITCODE -ne 0) { throw "Native configure failed." }
+
 & $cmake --build $nativeBuild --config $Configuration --parallel
 if ($LASTEXITCODE -ne 0) { throw "Native build failed." }
-& $cmake --build $nativeBuild --target RUN_TESTS --config $Configuration
+
+& $ctest --test-dir $nativeBuild -C $Configuration --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw "Native tests failed." }
 
-$cargoTarget = if ($env:TASKBARWIDGETS_TAURI_TARGET_DIR) {
-    $env:TASKBARWIDGETS_TAURI_TARGET_DIR
-} else {
-    Join-Path ([IO.Path]::GetTempPath()) "taskbarwidgets-cargo-check"
-}
-cargo test --manifest-path (Join-Path $RepoRoot "src\settings\src-tauri\Cargo.toml") --target-dir $cargoTarget
-if ($LASTEXITCODE -ne 0) { throw "Settings tests failed." }
-node --check (Join-Path $RepoRoot "src\settings\dist\app.js")
-if ($LASTEXITCODE -ne 0) { throw "Settings JavaScript validation failed." }
-
-$settingsFiles = Get-ChildItem (Join-Path $RepoRoot "src\settings\dist") -File -Recurse |
-    Where-Object Extension -in @(".html", ".css", ".js")
-if ($settingsFiles | Select-String -Pattern '<(script|link)[^>]+https?://|@import\s+url|fetch\s*\(\s*["'']https?://') {
-    throw "Settings UI contains a runtime CDN/network dependency."
-}
-Write-Host "Taskbar Widgets verification completed."
+Write-Host "Taskbar Widgets Lite verification completed."

@@ -1,0 +1,67 @@
+name: Build Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 0.5.37"
+        required: true
+        type: string
+      draft:
+        type: boolean
+        default: false
+      prerelease:
+        type: boolean
+        default: true
+      publish:
+        description: "Create/update the GitHub release after packaging"
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      INPUT_VERSION: ${{ inputs.version || '' }}
+      WINDOWS_SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT_BASE64 }}
+      WINDOWS_SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          $version = $env:INPUT_VERSION
+          if ([string]::IsNullOrWhiteSpace($version)) { $version = $env:GITHUB_REF_NAME -replace '^[vV]', '' }
+          if ($version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw "Invalid version: $version" }
+          "RELEASE_VERSION=$version" | Out-File $env:GITHUB_ENV -Append
+          "RELEASE_TAG=v$version" | Out-File $env:GITHUB_ENV -Append
+      - name: Verify
+        shell: pwsh
+        run: .\build.ps1 -Target Verify -Configuration Release
+      - name: Package
+        shell: pwsh
+        run: .\build.ps1 -Target Package -Configuration Release -Version $env:RELEASE_VERSION -InstallDependencies
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TaskbarWidgets-${{ env.RELEASE_VERSION }}-x64
+          path: |
+            artifacts/TaskbarWidgetsSetup-x64.exe
+            artifacts/TaskbarWidgetsSetup-x64.exe.sha256
+            artifacts/TaskbarWidgets-portable-x64.zip
+            artifacts/TaskbarWidgets-portable-x64.zip.sha256
+            artifacts/release-manifest.json
+      - name: Publish GitHub release
+        if: github.event_name == 'push' || inputs.publish == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $draft = "${{ inputs.draft || false }}" -eq "true"
+          $prerelease = "${{ inputs.prerelease || false }}" -eq "true"
+          .\build\create-release.ps1 -Tag $env:RELEASE_TAG -SkipBuild -Draft:$draft -Prerelease:$prerelease

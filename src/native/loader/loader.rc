@@ -1,0 +1,55 @@
+#include <windows.h>
+#include "resource.h"
+
+IDI_APP_ICON ICON "../../../assets/icon.ico"
+
+IDD_PRAYER_SETTINGS DIALOGEX 0, 0, 240, 152
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Prayer Times Settings"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT           "City:", -1, 12, 14, 66, 10
+    EDITTEXT        IDC_CITY, 84, 12, 144, 14, ES_AUTOHSCROLL
+
+    LTEXT           "Country:", -1, 12, 34, 66, 10
+    EDITTEXT        IDC_COUNTRY, 84, 32, 144, 14, ES_AUTOHSCROLL
+
+    LTEXT           "Method:", -1, 12, 54, 66, 10
+    COMBOBOX        IDC_METHOD, 84, 52, 144, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "Asr calculation:", -1, 12, 74, 66, 10
+    COMBOBOX        IDC_SCHOOL, 84, 72, 144, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    AUTOCHECKBOX    "Use 24-hour clock", IDC_USE24H, 84, 96, 144, 12, WS_TABSTOP
+
+    DEFPUSHBUTTON   "Save", IDOK, 122, 126, 50, 16
+    PUSHBUTTON      "Cancel", IDCANCEL, 178, 126, 50, 16
+END
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 0,5,37,0
+ PRODUCTVERSION 0,5,37,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "Taskbar Widgets Lite"
+            VALUE "FileDescription", "Taskbar Widgets Lite (Prayer Times & Media)"
+            VALUE "FileVersion", "0.5.37"
+            VALUE "InternalName", "TaskbarWidgets"
+            VALUE "OriginalFilename", "TaskbarWidgets.exe"
+            VALUE "ProductName", "Taskbar Widgets Lite"
+            VALUE "ProductVersion", "0.5.37"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

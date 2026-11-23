@@ -13,22 +13,7 @@ if ($Version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw "Invalid version: $Ver
 
 $NativeSource = Join-Path $RepoRoot "src\native"
 $NativeBuild = Join-Path $RepoRoot "artifacts\native-build"
-$LoaderProject = Join-Path $RepoRoot "src\loader\TaskbarWidgets.csproj"
-$VoiceCaptureProject = Join-Path $RepoRoot "src\voice-capture\TaskbarWidgets.VoiceCapture.csproj"
-$WidgetHostProject = Join-Path $RepoRoot "src\widget-host\TaskbarWidgets.WidgetHost.csproj"
-$TwDevProject = Join-Path $RepoRoot "src\twdev\twdev.csproj"
-$SettingsProject = Join-Path $RepoRoot "src\settings\src-tauri"
-$SettingsTargetDir = if ($env:TASKBARWIDGETS_TAURI_TARGET_DIR) {
-    $env:TASKBARWIDGETS_TAURI_TARGET_DIR
-} elseif ($env:BUILDAGENT_PROJECT_CACHE) {
-    Join-Path $env:BUILDAGENT_PROJECT_CACHE "cargo-target"
-} else {
-    Join-Path $env:TEMP "taskbarwidgets-tauri-target"
-}
-$ResourceDir = Join-Path $RepoRoot "src\loader\Resources"
 $PublishDir = Join-Path $RepoRoot "artifacts\TaskbarWidgets"
-$AssemblyVersion = if ($Version.Split('.').Count -eq 3) { "$Version.0" } else { $Version }
-$WebView2SdkRoot = (& (Join-Path $PSScriptRoot "restore-webview2.ps1") -PrintPath | Select-Object -Last 1).Trim()
 
 function Find-CMake {
     $command = Get-Command cmake -ErrorAction SilentlyContinue
@@ -51,133 +36,83 @@ function Find-CMake {
     throw "CMake/MSVC was not found. Install Visual Studio 2022 Build Tools with Desktop development with C++."
 }
 
+function Import-VsDevEnv {
+    $vcvars = @(
+        "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+        "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+        "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
+        "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $vcvars) { return $false }
+    $lines = cmd /c "`"$vcvars`" >nul && set"
+    if ($LASTEXITCODE -ne 0) { return $false }
+    foreach ($line in $lines) {
+        if ($line -match '^([^=]+)=(.*)$') {
+            [Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process")
+        }
+    }
+    return $true
+}
+
 & (Join-Path $PSScriptRoot "generate-widget-catalog.ps1")
 
 Remove-Item -Recurse -Force $PublishDir -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force $ResourceDir, $PublishDir, $NativeBuild | Out-Null
-Get-Process "TaskbarWidgets.MediaHelper" -ErrorAction SilentlyContinue |
+New-Item -ItemType Directory -Force $PublishDir, $NativeBuild | Out-Null
+Get-Process "TaskbarWidgets" -ErrorAction SilentlyContinue |
     Stop-Process -Force -ErrorAction SilentlyContinue
-Get-Process "TaskbarWidgets.RenderHost" -ErrorAction SilentlyContinue |
+Get-Process "TaskbarWidgets.MediaHelper" -ErrorAction SilentlyContinue |
     Stop-Process -Force -ErrorAction SilentlyContinue
 
 $cmake = Find-CMake
-& $cmake -S $NativeSource -B $NativeBuild -A x64 -DBUILD_TESTING=ON "-DWEBVIEW2_SDK_ROOT=$WebView2SdkRoot"
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vsFound = $false
+if (Test-Path $vswhere) {
+    $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if (-not [string]::IsNullOrWhiteSpace($vsPath)) { $vsFound = $true }
+}
+
+$useNinja = $false
+if (-not $vsFound -and (Import-VsDevEnv)) {
+    $ninja = Get-Command ninja -ErrorAction SilentlyContinue
+    if (-not $ninja) {
+        $ninjaCandidate = Get-ChildItem "C:\Program Files (x86)\Microsoft Visual Studio\2022" -Filter ninja.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+        if ($ninjaCandidate) { $env:PATH = "$(Split-Path $ninjaCandidate -Parent);$env:PATH"; $ninja = $ninjaCandidate }
+    }
+    if ($ninja) { $useNinja = $true }
+}
+
+if ($useNinja) {
+    & $cmake -S $NativeSource -B $NativeBuild -G "Ninja Multi-Config" -DBUILD_TESTING=ON
+} else {
+    & $cmake -S $NativeSource -B $NativeBuild -A x64 -DBUILD_TESTING=ON
+}
 if ($LASTEXITCODE -ne 0) { throw "Native configure failed." }
+
 & $cmake --build $NativeBuild --config $Configuration --parallel
 if ($LASTEXITCODE -ne 0) { throw "Native build failed." }
 
 $NativeOutput = Join-Path $NativeBuild $Configuration
+$LoaderOutput = Join-Path $NativeOutput "TaskbarWidgets.exe"
 $HookOutput = Join-Path $NativeOutput "TaskbarWidgets.Hook.dll"
 $MediaHelperOutput = Join-Path $NativeOutput "TaskbarWidgets.MediaHelper.exe"
-$RenderHostOutput = Join-Path $NativeOutput "TaskbarWidgets.RenderHost.exe"
-if (-not (Test-Path $HookOutput)) { throw "Native hook output missing: $HookOutput" }
+
+if (-not (Test-Path $LoaderOutput)) { throw "Loader output missing: $LoaderOutput" }
+if (-not (Test-Path $HookOutput)) { throw "Hook DLL output missing: $HookOutput" }
 if (-not (Test-Path $MediaHelperOutput)) { throw "Media helper output missing: $MediaHelperOutput" }
-if (-not (Test-Path $RenderHostOutput)) { throw "RenderHost output missing: $RenderHostOutput" }
-Copy-Item -Force $HookOutput (Join-Path $ResourceDir "TaskbarWidgets.Hook.dll")
 
-Write-Host "Building Taskbar Widgets Settings..."
-cargo build --manifest-path (Join-Path $SettingsProject "Cargo.toml") --release --target-dir $SettingsTargetDir
-if ($LASTEXITCODE -ne 0) { throw "Settings build failed." }
-$SettingsBuildOutput = Join-Path $SettingsTargetDir "release\taskbar_widgets_settings.exe"
-if (-not (Test-Path $SettingsBuildOutput)) { throw "Settings output missing: $SettingsBuildOutput" }
-Copy-Item -Force $SettingsBuildOutput (Join-Path $ResourceDir "TaskbarWidgets.Settings.exe")
-
-$VoiceCapturePublish = Join-Path $RepoRoot "artifacts\voice-capture-publish"
-Remove-Item -Recurse -Force $VoiceCapturePublish -ErrorAction SilentlyContinue
-Write-Host "Publishing optional Discord voice capture helper..."
-dotnet publish $VoiceCaptureProject `
-    -c $Configuration -r win-x64 --self-contained true `
-    -p:Version=$Version -p:AssemblyVersion=$AssemblyVersion -p:FileVersion=$AssemblyVersion `
-    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:EnableCompressionInSingleFile=true -o $VoiceCapturePublish
-if ($LASTEXITCODE -ne 0) { throw "Voice capture helper publish failed." }
-$VoiceCaptureOutput = Join-Path $VoiceCapturePublish "TaskbarWidgets.VoiceCapture.exe"
-if (-not (Test-Path $VoiceCaptureOutput)) { throw "Voice capture helper output missing: $VoiceCaptureOutput" }
-Copy-Item -Force $VoiceCaptureOutput (Join-Path $ResourceDir "TaskbarWidgets.VoiceCapture.exe")
-
-Write-Host "Publishing Taskbar Widgets loader..."
-dotnet publish $LoaderProject `
-    -c $Configuration -r win-x64 --self-contained true `
-    -p:Version=$Version -p:AssemblyVersion=$AssemblyVersion -p:FileVersion=$AssemblyVersion `
-    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:EnableCompressionInSingleFile=true -o $PublishDir
-if ($LASTEXITCODE -ne 0) { throw "Loader publish failed." }
-
-Copy-Item -Force $SettingsBuildOutput (Join-Path $PublishDir "TaskbarWidgets.Settings.exe")
+Copy-Item -Force $LoaderOutput (Join-Path $PublishDir "TaskbarWidgets.exe")
+Copy-Item -Force $HookOutput (Join-Path $PublishDir "TaskbarWidgets.Hook.dll")
 Copy-Item -Force $MediaHelperOutput (Join-Path $PublishDir "TaskbarWidgets.MediaHelper.exe")
-Copy-Item -Force $RenderHostOutput (Join-Path $PublishDir "TaskbarWidgets.RenderHost.exe")
-Copy-Item -Force $VoiceCaptureOutput (Join-Path $PublishDir "TaskbarWidgets.VoiceCapture.exe")
-Remove-Item -Recurse -Force $VoiceCapturePublish
 
-$WebViewBootstrapper = Join-Path $PublishDir "MicrosoftEdgeWebview2Setup.exe"
-if (-not (Test-Path $WebViewBootstrapper)) {
-    $WebViewCacheRoot = if ($env:BUILDAGENT_PROJECT_CACHE) {
-        Join-Path $env:BUILDAGENT_PROJECT_CACHE "webview2"
-    } else {
-        Join-Path $RepoRoot "artifacts\tools\webview2"
-    }
-    $CachedBootstrapper = Join-Path $WebViewCacheRoot "MicrosoftEdgeWebview2Setup.exe"
-    New-Item -ItemType Directory -Path $WebViewCacheRoot -Force | Out-Null
-    if (-not (Test-Path $CachedBootstrapper)) {
-        Write-Host "Downloading the Microsoft WebView2 Evergreen Bootstrapper to the persistent cache..."
-        Invoke-WebRequest `
-            -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" `
-            -OutFile $CachedBootstrapper `
-            -UseBasicParsing
-    }
-    Copy-Item -LiteralPath $CachedBootstrapper -Destination $WebViewBootstrapper -Force
+$AssetsWidgetsDir = Join-Path $PublishDir "Assets\widgets"
+New-Item -ItemType Directory -Force $AssetsWidgetsDir | Out-Null
+$MediaCover = Join-Path $RepoRoot "widgets\media-player\assets\media_cover.png"
+if (Test-Path $MediaCover) {
+    Copy-Item -Force $MediaCover (Join-Path $AssetsWidgetsDir "media_cover.png")
 }
-if ((Get-Item $WebViewBootstrapper).Length -lt 500000) {
-    throw "WebView2 Evergreen Bootstrapper download is unexpectedly small."
-}
-
-Write-Host "Publishing sandboxed community WidgetHost..."
-dotnet publish $WidgetHostProject -c $Configuration -r win-x64 --self-contained true `
-    -p:Version=$Version -p:PublishSingleFile=true -o (Join-Path $PublishDir "widget-host-publish")
-if ($LASTEXITCODE -ne 0) { throw "WidgetHost publish failed." }
-Copy-Item -Force (Join-Path $PublishDir "widget-host-publish\TaskbarWidgets.WidgetHost.exe") (Join-Path $PublishDir "TaskbarWidgets.WidgetHost.exe")
-Remove-Item -Recurse -Force (Join-Path $PublishDir "widget-host-publish")
-
-Write-Host "Publishing twdev community widget CLI..."
-dotnet publish $TwDevProject -c $Configuration -r win-x64 --self-contained true `
-    -p:Version=$Version -p:PublishSingleFile=true -o (Join-Path $PublishDir "twdev-publish")
-if ($LASTEXITCODE -ne 0) { throw "twdev publish failed." }
-Copy-Item -Force (Join-Path $PublishDir "twdev-publish\twdev.exe") (Join-Path $PublishDir "twdev.exe")
-Remove-Item -Recurse -Force (Join-Path $PublishDir "twdev-publish")
-
-# Widgets shipped with this distribution. They are packed as .twidget files and
-# offered at the end of setup; the normal permission review still applies.
-$BundledOutput = Join-Path $PublishDir "Bundled"
-New-Item -ItemType Directory -Force $BundledOutput | Out-Null
-Get-ChildItem (Join-Path $RepoRoot "bundled-widgets") -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-    $manifest = Get-Content (Join-Path $_.FullName "widget.json") -Raw | ConvertFrom-Json
-    $package = Join-Path $BundledOutput "$($manifest.id).twidget"
-    & (Join-Path $PublishDir "twdev.exe") pack $_.FullName $package
-    if ($LASTEXITCODE -ne 0) { throw "Packing bundled widget $($manifest.id) failed." }
-}
-
-$AssetsOutput = Join-Path $PublishDir "Assets"
-Remove-Item -Recurse -Force $AssetsOutput -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force $AssetsOutput | Out-Null
-Copy-Item -Path (Join-Path $RepoRoot "assets\*") -Destination $AssetsOutput -Recurse -Force
-Copy-Item -Path (Join-Path $RepoRoot "widgets\weather-static\assets\weather") -Destination $AssetsOutput -Recurse -Force
-New-Item -ItemType Directory -Force (Join-Path $AssetsOutput "widgets") | Out-Null
-Copy-Item -Force (Join-Path $RepoRoot "widgets\media-player\assets\media_cover.png") (Join-Path $AssetsOutput "widgets\media_cover.png")
-
-$ManifestOutput = Join-Path $PublishDir "Widgets"
-Remove-Item -Recurse -Force $ManifestOutput -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force $ManifestOutput | Out-Null
-Get-ChildItem (Join-Path $RepoRoot "widgets") -Filter widget.json -Recurse -File | ForEach-Object {
-    $id = (Get-Content $_.FullName -Raw | ConvertFrom-Json).id
-    Copy-Item $_.FullName (Join-Path $ManifestOutput "$id.json")
-}
-
-Copy-Item -Path (Join-Path $RepoRoot "community-sdk") -Destination (Join-Path $PublishDir "CommunitySDK") -Recurse -Force
 
 $PortableReadme = Join-Path $PublishDir "README-PORTABLE.txt"
-Set-Content $PortableReadme "Run TaskbarWidgets.exe. User data is stored in the Data folder beside the executable." -Encoding UTF8
+Set-Content $PortableReadme "Run TaskbarWidgets.exe. Right-click or left-click the tray icon to configure Prayer Times, toggle Media Player, or open Data\config.json." -Encoding UTF8
 
-$ExePath = Join-Path $PublishDir "TaskbarWidgets.exe"
-if (-not (Test-Path $ExePath)) { throw "Loader output missing: $ExePath" }
 Write-Host "Product output: $PublishDir"
 Get-ChildItem $PublishDir | Select-Object Name, Length, LastWriteTime
